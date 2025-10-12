@@ -727,8 +727,14 @@ async Task VerificarAreaDeResgate(string leituraDeCores)
 {
     const double LIMITE_DO_CONTADOR_DO_RESGATE = 5;
 
-    if (leituraDeCores[0] == 's' || leituraDeCores[1] == 's' ||
-        leituraDeCores[2] == 's' || leituraDeCores[3] == 's')
+    // Se dois ou mais sensores verem prata, entende que é a área de resgate
+    int prataLL = leituraDeCores[0].ToString() == PRATA ? 1 : 0;
+    int prataL = leituraDeCores[1].ToString() == PRATA ? 1 : 0;
+    int prataR = leituraDeCores[2].ToString() == PRATA ? 1 : 0;
+    int prataRR = leituraDeCores[3].ToString() == PRATA ? 1 : 0;
+    int prataTotal = prataLL + prataL + prataR + prataRR;
+
+    if (prataTotal >= 2)
     {
         contadorDaAreaDeResgate++;
     }
