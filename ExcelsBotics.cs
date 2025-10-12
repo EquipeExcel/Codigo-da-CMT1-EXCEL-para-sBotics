@@ -52,7 +52,7 @@ class SensorDeCor
             return VERMELHO;
         else if (leitura.Red < 60 && leitura.Green > 70 && leitura.Blue < 90)
             return VERDE;
-        else if (leitura.Red < 95 && leitura.Green > 80 && leitura.Blue > 90 && leitura.Blue < 125)
+        else if (leitura.Red < 105 && leitura.Green > 80 && leitura.Blue > 90 && leitura.Blue < 130)
             return PRATA;
         else if (leitura.Brightness >= 100)
             return BRANCO;
