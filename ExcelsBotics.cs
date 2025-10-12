@@ -3,14 +3,20 @@ const string PRETO = "p";
 const string VERDE = "g";
 const string VERMELHO = "r";
 const string PRATA = "s";
-const int VELOCIDADE_MINIMA = 230;
-const int VELOCIDADE_MEDIA = 230;
-const int VELOCIDADE_MAXIMA = 230;
-int velocidadePadrao = 230;
-int forcaPadrao = 70;
+const string UNKNOWN_COLOR = "u";
+const int VELOCIDADE_MINIMA = 245;
+const int VELOCIDADE_MEDIA = 245;
+const int VELOCIDADE_MAXIMA = 245;
+int velocidadePadrao = 245;
+int forcaPadrao = 100;
 double ultimaAtualizacaoDoConsole = 0;
 double ultimaAtualizacaoDaRampa = 0;
 int contadorDaRampa = 0;
+int contadorDaAreaDeResgate = 0;
+int vitimasResgatadas = 0;
+int repeticoesDeVitimaMorta = 0;
+bool vitimaMortaResgatada = false;
+bool saiuDaSalaDeResgate = false;
 
 // ! MARKUP COMMENT // Classes //************************************************************************************
 #region Classes
@@ -46,7 +52,7 @@ class SensorDeCor
             return VERMELHO;
         else if (leitura.Red < 60 && leitura.Green > 70 && leitura.Blue < 90)
             return VERDE;
-        else if (leitura.Red < 80 && leitura.Green > 80 && leitura.Blue > 90 && leitura.Blue < 100)
+        else if (leitura.Red < 95 && leitura.Green > 80 && leitura.Blue > 90 && leitura.Blue < 125)
             return PRATA;
         else if (leitura.Brightness >= 100)
             return BRANCO;
@@ -206,7 +212,7 @@ class MotoresPrincipais
 
     public static void Parar()
     {
-        MoverMotoresPorLado(0, 0, 0);
+        Mover(0, 0);
     }
 }
 #endregion
@@ -241,11 +247,11 @@ class PID
         // Verifica se os sensores da extremidade não estão na linha
         if (sensor1.CorDetectada() == PRETO)
         {
-            this.erro = 300;
+            this.erro = 500;
         }
         else if (sensor4.CorDetectada() == PRETO)
         {
-            this.erro = -300;
+            this.erro = -500;
         }
         // Calcula o erro com os sensores do meio
         else this.erro = sensor3.sensor.Analog.Brightness - sensor2.sensor.Analog.Brightness;
@@ -346,6 +352,7 @@ class Giroscopio
 {
     private double offset;
     public double Angulo => Utils.Map(Bot.Compass - this.offset, -360, 360, -180, 180);
+    public double AnguloBruto => Bot.Compass;
 
     public Giroscopio()
     {
@@ -380,8 +387,8 @@ class AngleServomotor
         forca = Math.Abs(forca);
         velocidade = Math.Abs(velocidade);
 
-        IO.Print($"AJUSTANDO {this.nome}");
-        this.motor.Locked = false;
+        IO.Print($"AJUSTANDO {this.nome} | Trava: {this.motor.Locked}");
+        this.motor.Locked = false; await Time.Delay(100);
         this.motor.Apply(forca, contraRotacao ? -velocidade : velocidade);
         await Time.Delay(tempo);
         this.motor.Apply(0, 0);
@@ -400,11 +407,18 @@ SensorDeCor sensorDeCorL = new SensorDeCor("corEsquerda");
 SensorDeCor sensorDeCorR = new SensorDeCor("corDireita");
 SensorDeCor sensorDeCorRR = new SensorDeCor("corExtremaDireita");
 
+SensorDeCor sensorDeCorCacamba = new SensorDeCor("corCaixaDeVitimas");
+SensorDeCor sensorDeCorCacamba2 = new SensorDeCor("corCaixaDeVitimas2");
+SensorDeCor sensorDeCorCacamba3 = new SensorDeCor("corCaixaDeVitimas3");
+SensorDeCor sensorDeCorFrontal = new SensorDeCor("corFrontal");
+
 SensorUltrassonico ultrassonicoFrontalDireito = new SensorUltrassonico("ultrassonicoFrontalDireito");
 SensorUltrassonico ultrassonicoFrontalEsquerdo = new SensorUltrassonico("ultrassonicoFrontalEsquerdo");
 
-SensorUltrassonico ultrassonicoDeResgateEsquerdo = new SensorUltrassonico("ultrassonicoDeResgateEsquerdo");
 SensorUltrassonico ultrassonicoDeResgateDireito = new SensorUltrassonico("ultrassonicoDeResgateDireito");
+
+SensorUltrassonico ultrassonicoEsquerdo = new SensorUltrassonico("ultrassonicoEsquerdo");
+SensorUltrassonico ultrassonicoDireito = new SensorUltrassonico("ultrassonicoDireito");
 
 MotoresPrincipais mFrontalEsquerdo = new MotoresPrincipais("FE", "esquerda");
 MotoresPrincipais mTraseiroEsquerdo = new MotoresPrincipais("TE", "esquerda");
@@ -489,10 +503,11 @@ async Task VerificaCruzamentos(string leituraDeCores)
     }
 
     IO.Print($"CURVA DE 90° GRAUS - {ladoDaCurva}"); // Passou no swtich sem encerrar a função = curva; decide o lado da curva de acordo com a variável ladoDaCurva
+    MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao); await Time.Delay(250);
     // Gira para o lado contrário da curva
     await MotoresPrincipais.CurvaEmGraus((ladoDaCurva == "direita" ? "esquerda" : "direita"), 30, forcaPadrao, velocidadePadrao);
     // Gira para o lado da curva até achar a linha
-    while ((ladoDaCurva == "esquerda" ? sensorDeCorR.CorDetectada() : sensorDeCorL.CorDetectada()) != PRETO)
+    while ((ladoDaCurva == "esquerda" ? sensorDeCorL.CorDetectada() : sensorDeCorR.CorDetectada()) != PRETO)
     {
         await Time.Delay(1);
         await MotoresPrincipais.Girar((ladoDaCurva == "direita" ? "direita" : "esquerda"), 0, 0, forcaPadrao, velocidadePadrao);
@@ -524,7 +539,7 @@ OUTPUTS: se houver verde, executa a curva do verde
 */
 async Task VerificarVerde()
 {
-    int delay = 700;
+    int delay = 850;
 
     string cores = sensorDeCorL.CorDetectada() + sensorDeCorR.CorDetectada();
     switch (cores)
@@ -534,14 +549,24 @@ async Task VerificarVerde()
         case "gp":
             IO.Print("VERDE - ESQUERDA");
             await Time.Delay(delay);
-            await MotoresPrincipais.CurvaEmGraus("esquerda", 45, forcaPadrao, velocidadePadrao);
+            await MotoresPrincipais.CurvaEmGraus("esquerda", 5, forcaPadrao, velocidadePadrao);
+            while(sensorDeCorL.CorDetectada() != PRETO)
+            {
+                await Time.Delay(1);
+                MotoresPrincipais.Girar("esquerda", 0, 0, forcaPadrao, velocidadePadrao);
+            }
             break;
         // Curva de 90° para a direita
         case "wg":
         case "pg":
             IO.Print("VERDE - DIREITA");
             await Time.Delay(delay);
-            await MotoresPrincipais.CurvaEmGraus("direita", 45, forcaPadrao, velocidadePadrao);
+            await MotoresPrincipais.CurvaEmGraus("direita", 5, forcaPadrao, velocidadePadrao);
+            while(sensorDeCorR.CorDetectada() != PRETO)
+            {
+                await Time.Delay(1);
+                MotoresPrincipais.Girar("direita", 0, 0, forcaPadrao, velocidadePadrao);
+            }
             break;
         // Beco sem saída
         case "gg":
@@ -653,7 +678,7 @@ OUTPUTS: desvia dos obstáculos chamando as funções de movimentação
 */
 async Task VerificarObstaculo()
 {
-    double distanciaIdeal = 2;
+    double distanciaIdeal = 1;
 
     if (ultrassonicoFrontalDireito.LerDistancia() < 1)
     {
@@ -676,32 +701,62 @@ Função que verifica se o robô está em uma rampa
 */
 async Task VerificarRampa()
 {
-    const int LIMITE_DO_CONTADOR = 50;
-    const int LIMITE_DE_INCLINACAO = 17;
+    const int LIMITE_DO_CONTADOR = 30;
+    int[] LIMITE_DE_INCLINACAO = {50, 355};
+    const int LIMITE_CONTADOR_BAIXA_VELOCIDADE = 70;
+    int contadorBaixaVelocidade = 0;
+    const double LIMITE_DE_ERRO = 50;
+    bool houveBaixaVelocidade = false;
 
     // Se a inclinação é alta, incrementa o contador
-    if (Bot.Inclination > LIMITE_DE_INCLINACAO)
+    if (Bot.Inclination > LIMITE_DE_INCLINACAO[0] && Bot.Inclination < LIMITE_DE_INCLINACAO[1])
     {
         contadorDaRampa++;
     }
 
     // Se o contador excede o limite, a rampa é confirmada e o robô segue em linha reta até passar dela
-    if (contadorDaRampa > LIMITE_DO_CONTADOR)
+    if (contadorDaRampa > LIMITE_DO_CONTADOR && PIDPrincipal.erro < LIMITE_DE_ERRO) 
     {
-        IO.Print("RAMPA");
+        IO.Print($"RAMPA | Velocidade: {Bot.Speed}");
         giroscopio.RedefinirOffset();
 
-        while (Bot.Inclination > LIMITE_DE_INCLINACAO)
+        while (Bot.Inclination > LIMITE_DE_INCLINACAO[0] && Bot.Inclination < LIMITE_DE_INCLINACAO[1])
         {
             await Time.Delay(1);
-            /* forcaPadrao = 140;
-            PIDPrincipal.CalcularErroGiroscopico(giroscopio);
+            forcaPadrao = 140;
+            /* PIDPrincipal.CalcularErroGiroscopico(giroscopio);
             PIDPrincipal.CalcularPID();
             AplicarPIDAosMotores();
             IO.Print($"PID: {PIDPrincipal.pid} | Direção: {giroscopio.Angulo} | Inclinação: {Bot.Inclination}"); */
             MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
+
+            // Se o robô estiver parado ou muito lento, aumenta o contador
+            if (Bot.Speed < 0.5)
+            {
+                contadorBaixaVelocidade++;
+            }
+
+            // Se a velocidade na rampa for baixa, tenta passar ao contrário
+            if (contadorBaixaVelocidade > LIMITE_CONTADOR_BAIXA_VELOCIDADE)
+            {
+                houveBaixaVelocidade = true;
+                forcaPadrao = 200;
+                await MotoresPrincipais.CurvaEmGraus("direita", 225, forcaPadrao, velocidadePadrao);
+                MotoresPrincipais.TravaDosMotores(true); await DefinirGarra("abaixada"); MotoresPrincipais.TravaDosMotores(false);
+                MotoresPrincipais.Mover(forcaPadrao, -velocidadePadrao);
+                await Time.Delay(8000);
+                await MotoresPrincipais.CurvaEmGraus("direita", 205, forcaPadrao, velocidadePadrao);
+                contadorBaixaVelocidade = 0;
+            }
         }
-        forcaPadrao = 70;
+        if (houveBaixaVelocidade)
+        {
+            MotoresPrincipais.TravaDosMotores(true);
+            await DefinirGarra("levantada");
+            await Time.Delay(400);
+            MotoresPrincipais.TravaDosMotores(false);
+        }
+        forcaPadrao = 100;
         contadorDaRampa = 0;
     }
 
@@ -711,24 +766,12 @@ async Task VerificarRampa()
         contadorDaRampa = 0;
     }
 
-    if (Bot.Inclination < LIMITE_DE_INCLINACAO)
+    if (!(Bot.Inclination > LIMITE_DE_INCLINACAO[0] && Bot.Inclination < LIMITE_DE_INCLINACAO[1]) || PIDPrincipal.erro > LIMITE_DE_ERRO)
     {
         contadorDaRampa = 0;
     }
 }
 #endregion
-
-void imprimirConsole(string leituraDeCores)
-{
-    if(Utilitarios.Millis() - ultimaAtualizacaoDoConsole >= 0){
-        ultimaAtualizacaoDoConsole = Utilitarios.Millis();
-        IO.Print($@"
-Cores: {leituraDeCores} 
-PID: {PIDPrincipal.pid:F1} | Erro: {PIDPrincipal.erro:F1}| Integral: {(PIDPrincipal.Integral != 0 ? "ATIVADO" : "DESATIVADO")}
-Velocidade: {velocidadePadrao}
-Inclinação: {Bot.Inclination}");
-    }
-}
 
 #region Resgate
 /*
@@ -736,12 +779,421 @@ Função que detecta a entrada da área de resgate
 */
 async Task VerificarAreaDeResgate(string leituraDeCores)
 {
+    const double LIMITE_DO_CONTADOR_DO_RESGATE = 5;
+
     if (leituraDeCores[0] == 's' || leituraDeCores[1] == 's' ||
         leituraDeCores[2] == 's' || leituraDeCores[3] == 's')
     {
-        IO.Print("ÁREA DE RESGATE");
-        while (true) { await Time.Delay(1); }
+        contadorDaAreaDeResgate++;
     }
+    else contadorDaAreaDeResgate = 0;
+
+    if (contadorDaAreaDeResgate > LIMITE_DO_CONTADOR_DO_RESGATE)
+    {
+        IO.Print("ÁREA DE RESGATE");
+        MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
+        await Time.Delay(2500);
+        await ResgateMainLoop();
+        forcaPadrao = 100;
+    }
+}
+
+/*
+Função que encapsula o comportamento da área de resgate
+*/
+async Task ResgateMainLoop()
+{
+    forcaPadrao = 50;
+    while (true)
+    {
+        await Time.Delay(1);
+
+        if (vitimaMortaResgatada)
+        {
+            await ProcurarSaida();
+            return;
+        }
+
+        // Se achou uma vítima
+        bool vitimaEncontrada = await ProcurarVitimas();
+        bool vitimaCapturada = false;
+        string tipoDeVitima = "indefinido";
+        if (vitimaEncontrada)
+        {
+            // Se conseguiu capturar
+            vitimaCapturada = await AproximarComVitima();
+        }
+
+        if (vitimaCapturada)
+        {
+            tipoDeVitima = IdentificarVitima();
+            IO.Print($"Encontrada: {(vitimaEncontrada ? "sim" : "não")} | Capturada : {(vitimaCapturada ? "sim" : "não")} | Tipo: {tipoDeVitima}");
+            await Time.Delay(500);
+            bool vitimaDepositada = false;
+
+            while (!vitimaDepositada)
+            {
+                await Time.Delay(1);
+                vitimaDepositada = await DepositarVitima(tipoDeVitima);
+            }
+        }
+    }
+}
+
+/*
+Função que procura a saída da sala de resgate
+*/
+async Task ProcurarSaida()
+{
+    int contadorDeTimeout = 0;
+    const int LIMITE_DE_TIMEOUT = 300;
+
+    int contadorDaSaida = 0;
+    const int LIMITE_CONTADOR_DA_SAIDA = 4;
+
+    // Procura por um ponto onde o sensor ultrassônico lê distância maior que alcance máximo
+    while (!saiuDaSalaDeResgate)
+    {
+        await Time.Delay(1);
+        IO.Print("PROCURANDO A SAÍDA");
+
+        MotoresPrincipais.Girar("direita", 0, 0, forcaPadrao, velocidadePadrao);
+
+        if (ultrassonicoDeResgateDireito.LerDistancia() > 26.5)
+        {
+            contadorDaSaida++;
+        }
+        else contadorDaSaida = 0;
+
+        if (contadorDaSaida > LIMITE_CONTADOR_DA_SAIDA)
+        {
+            IO.Print("SAÍDA ENCONTRADA");
+            break;
+        }
+    }
+    MotoresPrincipais.Parar();
+
+    // Vai até a saída e verifica a cor
+    while (contadorDeTimeout <= LIMITE_DE_TIMEOUT && !saiuDaSalaDeResgate)
+    {
+        await Time.Delay(1);
+
+        MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
+
+        // Se algum detectar prata ou der timeout, cancela, recua a saída e reinicia a busca
+        if (sensorDeCorLL.CorDetectada() == PRATA || sensorDeCorL.CorDetectada() == PRATA ||
+            sensorDeCorR.CorDetectada() == PRATA || sensorDeCorRR.CorDetectada() == PRATA
+            || contadorDeTimeout >= LIMITE_DE_TIMEOUT)
+        {
+            MotoresPrincipais.Mover(forcaPadrao, -velocidadePadrao);
+            await Time.Delay(4500);
+            await MotoresPrincipais.CurvaEmGraus("direita", 70, forcaPadrao, velocidadePadrao);
+            await ProcurarSaida();
+            contadorDeTimeout = 0;
+        }
+
+        // Se dois ou mais sensores verem preto, entende que achou a saída
+        int pretoLL = sensorDeCorLL.CorDetectada() == PRETO ? 1 : 0;
+        int pretoL = sensorDeCorL.CorDetectada() == PRETO ? 1 : 0;
+        int pretoR = sensorDeCorR.CorDetectada() == PRETO ? 1 : 0;
+        int pretoRR = sensorDeCorRR.CorDetectada() == PRETO ? 1 : 0;
+        int pretoTotal = pretoLL + pretoL + pretoR + pretoRR;
+        if (pretoTotal >= 2)
+        {
+            MotoresPrincipais.Parar();
+            await SairDaSalaDeResgate();
+            break;
+        }
+
+        IO.Print($"APROXIMANDO DA SAÍDA | Timeout em: {LIMITE_DE_TIMEOUT - contadorDeTimeout} | Contador de preto: {pretoTotal}");
+
+        contadorDeTimeout++;
+    }
+}
+
+/*
+Função auxiliar que faz a saída da sala de resgate
+*/
+async Task SairDaSalaDeResgate()
+{
+    const int MARGEM_DE_ERRO_ANGULO = 10;
+    // Alinha com o eixo X e vê se é uma parede ou a saída
+    int restoDoAngulo = (int)giroscopio.AnguloBruto % 90;
+    while (!(restoDoAngulo > -MARGEM_DE_ERRO_ANGULO && restoDoAngulo < MARGEM_DE_ERRO_ANGULO))
+    {
+        await Time.Delay(1);
+        IO.Print($"ALINHANDO COM X | {(int)giroscopio.AnguloBruto % 90}");
+        await MotoresPrincipais.Girar("direita", 0, 0, forcaPadrao, velocidadePadrao);
+        restoDoAngulo = (int)giroscopio.AnguloBruto % 90;
+    }
+    MotoresPrincipais.Parar();
+    if (ultrassonicoDeResgateDireito.LerDistancia() > 15)
+    {
+        IO.Print("Saída confirmada em X");
+        MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
+        await Time.Delay(1000);
+        saiuDaSalaDeResgate = true;
+        return;
+    }
+    else
+    {
+        await MotoresPrincipais.CurvaEmGraus("esquerda", 20, forcaPadrao, velocidadePadrao);
+        // Se for parede, alinha com o eixo Y
+        restoDoAngulo = (int)giroscopio.AnguloBruto % 90;
+        while (!(restoDoAngulo > -MARGEM_DE_ERRO_ANGULO && restoDoAngulo < MARGEM_DE_ERRO_ANGULO))
+        {
+            await Time.Delay(1);
+            IO.Print($"ALINHANDO COM Y | {(int)giroscopio.AnguloBruto % 90}");
+            await MotoresPrincipais.Girar("esquerda", 0, 0, forcaPadrao, velocidadePadrao);
+            restoDoAngulo = (int)giroscopio.AnguloBruto % 90;
+        }
+        MotoresPrincipais.Parar();
+        if (ultrassonicoDeResgateDireito.LerDistancia() > 15)
+        {
+            IO.Print("Saída confirmada em Y");
+            MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
+            await Time.Delay(1000);
+            saiuDaSalaDeResgate = true;
+            return;
+        }
+    }
+}
+
+/*
+Função auxiliar que procura pelo depósito das vítimas
+*/
+async Task ProcurarDeposito()
+{
+    const int LIMITE_CONTADOR_DEPOSITO = 10;
+    int contadorDoDepostito = 0;
+    double distanciaSuperior = 0, distanciaInferior = 0, diferenca = 0;
+
+    // Procura pelo local de depósito comparando ultrassônicos
+    MotoresPrincipais.TravaDosMotores(false);
+    while (contadorDoDepostito < LIMITE_CONTADOR_DEPOSITO)
+    {
+        await Time.Delay(1);
+        MotoresPrincipais.Girar("direita", 0, 0, forcaPadrao, velocidadePadrao);
+
+        distanciaSuperior = ultrassonicoFrontalDireito.LerDistancia();
+        distanciaInferior = ultrassonicoDeResgateDireito.LerDistancia();
+        diferenca = distanciaSuperior - distanciaInferior;
+        if (diferenca > 3 && diferenca < 6.5)
+        {
+            contadorDoDepostito++;
+        }
+        else contadorDoDepostito = 0;
+
+        IO.Print($"Contador do depósito: {contadorDoDepostito}");
+        contadorDoDepostito++;
+    }
+
+    IO.Print("DEPÓSITO LOCALIZADO");
+}
+
+/*
+Função que busca pela área de depósito e deposita a vítima
+INPUTS: o tipo de vítima: "viva" ou "morta", de preferência retornado pela função IdentificarVitima
+OUTPUTS: true se depositou corretamente, false se falhou
+*/
+async Task<bool> DepositarVitima(string tipo)
+{
+    string depositoAlvo = tipo == "viva" ? VERDE : VERMELHO;
+
+    await ProcurarDeposito();
+
+    // Vai até o depósito
+    while (ultrassonicoDeResgateDireito.LerDistancia() > 0.5)
+    {
+        await Time.Delay(1);
+
+        MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
+
+        // Se não for da cor do alvo, cancela e reinicia a busca
+        string cor = sensorDeCorFrontal.CorDetectada();
+        if (cor != UNKNOWN_COLOR && cor != BRANCO && cor != PRETO && cor != depositoAlvo)
+        {
+            MotoresPrincipais.Parar(); await Time.Delay(250);
+            MotoresPrincipais.Mover(forcaPadrao, -velocidadePadrao); await Time.Delay(1000);
+            return false;
+        }
+        // Se estiver perto mas a cor ainda não for a do depósito alvo, cancela e reinicia a busca
+        if (ultrassonicoDeResgateDireito.LerDistancia() < 5 && cor != depositoAlvo)
+        {
+            MotoresPrincipais.Parar(); await Time.Delay(250);
+            MotoresPrincipais.Mover(forcaPadrao, -velocidadePadrao); await Time.Delay(1000);
+            return false;
+        }
+        // Se estiver apontando para uma saída ou lugar vazio, cancela e reinicia a busca
+        if (ultrassonicoDeResgateDireito.LerDistancia() >= 32)
+        {
+            MotoresPrincipais.Parar(); await Time.Delay(250);
+            MotoresPrincipais.Mover(forcaPadrao, -velocidadePadrao); await Time.Delay(1000);
+            return false;
+        }
+    }
+
+    // Se não teve retorno antecipado, entende que a aproximação foi concluída com sucesso
+    MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
+    await Time.Delay(1000);
+    MotoresPrincipais.TravaDosMotores(true);
+    await DepositarVitima();
+    MotoresPrincipais.TravaDosMotores(false);
+    
+    // Recuar
+    MotoresPrincipais.Mover(forcaPadrao, -velocidadePadrao);
+    await Time.Delay(2500);
+
+    vitimasResgatadas++;
+    return true;
+}
+
+/*
+Função que deposita a vítima (em qualquer lugar)
+*/
+async Task DepositarVitima()
+{
+    await DefinirGarra("abaixada pela metade"); await Time.Delay(500);
+    await DefinirGarra("aberta"); await Time.Delay(700);
+    await DefinirGarra("levantada"); await Time.Delay(700);
+    await DefinirGarra("fechada"); await Time.Delay(700);
+}
+
+/*
+Função que identifica a vítima
+INPUTS: nenhum
+OUTPUTS: o tipo de vítima (viva ou morta)
+*/
+string IdentificarVitima()
+{
+    // Se pelo menos um dos sensores ver preto, é vítima morta
+    if (sensorDeCorCacamba.CorDetectada() == PRETO || sensorDeCorCacamba2.CorDetectada() == PRETO || sensorDeCorCacamba3.CorDetectada() == PRETO)
+        return "morta";
+    // Se todos os três sensores verem branco, é vítima viva
+    else if (sensorDeCorCacamba.CorDetectada() == BRANCO && sensorDeCorCacamba2.CorDetectada() == BRANCO && sensorDeCorCacamba3.CorDetectada() == BRANCO)
+        return "viva";
+    else return "indefinido";
+}
+
+/*
+Função que faz aproximação para resgate com a vítima encontrada
+INPUTS: nenhum
+OUTPUTS: true se conseguiu uma vítima, false se ocorreu timeout ou falha na captura
+*/
+async Task<bool> AproximarComVitima()
+{
+    const double DISTANCIA_DE_CAPTURA = 0.5;
+    const int LIMITE_DE_TIMEOUT = 270;
+    int contadorDeTimeout = 0;
+
+    // Posiciona a garra
+    MotoresPrincipais.Parar(); MotoresPrincipais.TravaDosMotores(true);
+    await DefinirGarra("aberta");
+    await DefinirGarra("abaixada");
+
+    // Vai até a vítima
+    MotoresPrincipais.TravaDosMotores(false);
+    while (ultrassonicoDeResgateDireito.LerDistancia() > DISTANCIA_DE_CAPTURA)
+    {
+        await Time.Delay(1);
+        IO.Print($"Distancia: {ultrassonicoDeResgateDireito.LerDistancia()} | Iterações até timeout: {LIMITE_DE_TIMEOUT - contadorDeTimeout}");
+        MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
+
+        if (contadorDeTimeout > LIMITE_DE_TIMEOUT)
+        {
+            IO.Print($"CANCELAR RESGATE - TIMEOUT");
+            MotoresPrincipais.Mover(forcaPadrao, -velocidadePadrao);
+            await Time.Delay(3000);
+            MotoresPrincipais.TravaDosMotores(true);
+            await DefinirGarra("levantada"); await Time.Delay(200);
+            await DefinirGarra("fechada");
+            MotoresPrincipais.TravaDosMotores(false);
+            return false;
+        }
+
+        contadorDeTimeout++;
+    }
+
+    // Captura a vítima
+    await DefinirGarra("fechada"); await Time.Delay(200);
+    MotoresPrincipais.Mover(forcaPadrao, -velocidadePadrao);
+    await Time.Delay(1700);
+    MotoresPrincipais.TravaDosMotores(true);
+    await DefinirGarra("levantada"); await Time.Delay(200);
+    MotoresPrincipais.TravaDosMotores(false);
+    vitimaMortaResgatada = IdentificarVitima() == "morta" ? true : false;
+
+    // Se pegou uma morta antes de ter pego as duas vivas, larga e continua procurando
+    if (IdentificarVitima() == "morta" && vitimasResgatadas < 2 && repeticoesDeVitimaMorta < 2)
+    {
+        IO.Print("CANCELAR RESGATE - PRIORIDADE PARA AS VIVAS");
+        await MotoresPrincipais.CurvaEmGraus("esquerda", 70, forcaPadrao, velocidadePadrao);
+        MotoresPrincipais.Parar(); MotoresPrincipais.TravaDosMotores(true);
+        await DefinirGarra("abaixada"); await Time.Delay(500);
+        await DefinirGarra("aberta"); await Time.Delay(700);
+        await DefinirGarra("levantada"); await Time.Delay(700);
+        await DefinirGarra("fechada"); await Time.Delay(700);
+        MotoresPrincipais.Parar(); MotoresPrincipais.TravaDosMotores(false);
+        await MotoresPrincipais.CurvaEmGraus("direita", 70, forcaPadrao, velocidadePadrao);
+        MotoresPrincipais.Mover(forcaPadrao, -velocidadePadrao); await Time.Delay(500);
+        repeticoesDeVitimaMorta++;
+        vitimaMortaResgatada = false;
+        return false;
+    }
+
+    return sensorDeCorCacamba.CorDetectada() == VERDE ? false : true;
+} 
+
+/*
+Função que procura as vítimas com base no sensor ultrassônico
+INPUT: nenhum
+OUTPUT: true se achou uma vítima, false se não achou
+*/
+async Task<bool> ProcurarVitimas()
+{
+    const double DISTANCIA_IDEAL_DE_RESGATE = 3;
+    // Define o lado da procura
+    string ladoDaProcura = "direita";
+    string ladoOpostoAProcura = "esquerda";
+    
+    // Inicia a busca pelas vítimas
+    double distancia = ultrassonicoDeResgateDireito.LerDistancia(), distanciaAnterior = distancia;
+    string cor = sensorDeCorFrontal.CorDetectada();
+    
+    // Busca pela vítima se baseando em quedas bruscas na distância
+    while (true)
+    {
+        await Time.Delay(1);
+        MotoresPrincipais.Girar(ladoDaProcura, 0, 0, forcaPadrao, velocidadePadrao);
+        distancia = ultrassonicoDeResgateDireito.LerDistancia();
+        cor = sensorDeCorFrontal.CorDetectada();
+
+        double percentual = (distancia / distanciaAnterior) * 100;
+        // se houve queda brusca na distância ou o sensor leu preto (vitima morta), identifica como vítima
+        if ((percentual > 2 && percentual < 70) || cor == PRETO)
+        {
+            // Se a distância anterior for 32 (fora de alcance) e a diferença entre os sensores superiores e inferiores for baixa, entende que não é uma vítima (e sim uma parede) e passa para a próxima iteração
+            if (distanciaAnterior == 32 && ultrassonicoFrontalDireito.LerDistancia() - ultrassonicoDeResgateDireito.LerDistancia() < 3)
+            {
+                continue;
+            }
+
+            IO.Print($"VITIMA ENCONTRADA | Distancia: {distancia} | Percentual: {percentual}");
+            MotoresPrincipais.CurvaEmGraus("esquerda", 5, forcaPadrao, velocidadePadrao);
+            while (ultrassonicoDeResgateDireito.LerDistancia() < DISTANCIA_IDEAL_DE_RESGATE)
+            {
+                await Time.Delay(1);
+                MotoresPrincipais.Mover(forcaPadrao, -velocidadePadrao);
+            }
+            MotoresPrincipais.Parar();
+            return true;
+        }
+
+        IO.Print($"D: {distancia} | P: {percentual}");
+        distanciaAnterior = distancia;
+    }
+
+    return false;
 }
 
 /*
@@ -772,10 +1224,10 @@ INPUTS: estado -> "levantada", "abaixada", "aberta" ou "fechada"
 */
 async Task DefinirGarra(string estado)
 {
-    double forca = 70;
+    double forca = 200;
     double velocidade = 200;
     const double TEMPO_PARA_ABAIXAR = 1400;
-    const double TEMPO_PARA_LEVANTAR = 1100;
+    const double TEMPO_PARA_LEVANTAR = 1250;
     const double TEMPO_PARA_FECHAR = 1700;
     const double TEMPO_PARA_ABRIR = 500;
 
@@ -791,7 +1243,10 @@ async Task DefinirGarra(string estado)
             await servoDaGarra.write(forca, velocidade, TEMPO_PARA_ABRIR, false);
             break;
         case "fechada":
-            await servoDaGarra.write(forca, velocidade, TEMPO_PARA_FECHAR, true);
+            await servoDaGarra.write(forca * 1.5, velocidade, TEMPO_PARA_FECHAR, true);
+            break;
+        case "abaixada pela metade":
+            await servoBracoDaGarra.write(forca, velocidade, TEMPO_PARA_ABAIXAR / 2, false);
             break;
     }
 }
@@ -799,6 +1254,18 @@ async Task DefinirGarra(string estado)
 #endregion
 
 #region Main
+void imprimirConsole(string leituraDeCores)
+{
+    if(Utilitarios.Millis() - ultimaAtualizacaoDoConsole >= 1){
+        ultimaAtualizacaoDoConsole = Utilitarios.Millis();
+        IO.Print($@"
+Cores: {leituraDeCores} 
+PID: {PIDPrincipal.pid:F1} | Erro: {PIDPrincipal.erro:F1} | Integral: {(PIDPrincipal.Integral != 0 ? "ATIVADO" : "DESATIVADO")}
+Velocidade: {Bot.Speed}
+Inclinação: {Bot.Inclination} | Contador da Rampa: {contadorDaRampa}");
+    }
+}
+
 async Task Main()
 {
     giroscopio.RedefinirOffset();
@@ -815,11 +1282,11 @@ async Task Main()
     IO.Print(servoBracoDaGarra.Angulo.ToString());
 
     await DefinirCacamba("abaixada");
-    await DefinirGarra("abaixada");
     await DefinirGarra("fechada");
     await DefinirGarra("levantada");
 
-    await MotoresPrincipais.CurvaEmGraus("esquerda", 15, forcaPadrao, velocidadePadrao);
+    MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
+    await Time.Delay(500);
 
     while (true)
     {
@@ -835,7 +1302,6 @@ async Task Main()
         VerificarLadrilhoFinal(leituraDeCores);
         await VerificarAreaDeResgate(leituraDeCores);
         SeguirLinhaComPID();
-
     }
 }
 #endregion
