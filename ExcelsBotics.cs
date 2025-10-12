@@ -539,7 +539,8 @@ OUTPUTS: se houver verde, executa a curva do verde
 */
 async Task VerificarVerde()
 {
-    int delay = 850;
+    int delay = 730;
+    int delay2 = 400;
 
     string cores = sensorDeCorL.CorDetectada() + sensorDeCorR.CorDetectada();
     switch (cores)
@@ -548,25 +549,21 @@ async Task VerificarVerde()
         case "gw":
         case "gp":
             IO.Print("VERDE - ESQUERDA");
+            MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
             await Time.Delay(delay);
-            await MotoresPrincipais.CurvaEmGraus("esquerda", 5, forcaPadrao, velocidadePadrao);
-            while(sensorDeCorL.CorDetectada() != PRETO)
-            {
-                await Time.Delay(1);
-                MotoresPrincipais.Girar("esquerda", 0, 0, forcaPadrao, velocidadePadrao);
-            }
+            await MotoresPrincipais.CurvaEmGraus("esquerda", 90, forcaPadrao, velocidadePadrao);
+            MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
+            await Time.Delay(delay2);
             break;
         // Curva de 90° para a direita
         case "wg":
         case "pg":
             IO.Print("VERDE - DIREITA");
+            MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
             await Time.Delay(delay);
-            await MotoresPrincipais.CurvaEmGraus("direita", 5, forcaPadrao, velocidadePadrao);
-            while(sensorDeCorR.CorDetectada() != PRETO)
-            {
-                await Time.Delay(1);
-                MotoresPrincipais.Girar("direita", 0, 0, forcaPadrao, velocidadePadrao);
-            }
+            await MotoresPrincipais.CurvaEmGraus("direita", 90, forcaPadrao, velocidadePadrao);
+            MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
+            await Time.Delay(delay2);
             break;
         // Beco sem saída
         case "gg":
