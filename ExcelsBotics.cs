@@ -578,80 +578,29 @@ async Task VerificarVerde()
 
 /*
 Função que contém a movimentação do robô para desviar de obstáculos para cada lado
-INPUTS: o lado para qual o desvio será feito
+INPUTS: nenhum
 OUTPUTS: faz o robô contornar o obstáculo
 */
 async Task DesviarDeObstaculo()
 {
+    double velocidadeDaDireita = velocidadePadrao * 2;
+    double velocidadeDaEsquerda = velocidadePadrao * 0.3;
+
     // Primeiro Giro
     IO.Print("PRIMEIRO GIRO");
     MotoresPrincipais.Parar();
     await Time.Delay(200);
     await MotoresPrincipais.CurvaEmGraus("direita", 90, forcaPadrao, velocidadePadrao);
 
-    // Primeiro avanço
-    IO.Print("PRIMEIRO AVANÇO");
-    MotoresPrincipais.Parar();
-    await Time.Delay(200);
-    MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
-    await Time.Delay(1350);
-
-    // Segundo Giro
-    IO.Print("SEGUNDO GIRO");
-    MotoresPrincipais.Parar();
-    await Time.Delay(200);
-    await MotoresPrincipais.CurvaEmGraus("esquerda", 90, forcaPadrao, velocidadePadrao);
-
-    // Segundo avanço
-    IO.Print("SEGUNDO AVANÇO");
-    MotoresPrincipais.Parar();
-    await Time.Delay(200);
-    await AvancarNoObstaculo(130, "direita");
-    if (sensorDeCorL.CorDetectada() != BRANCO) return;
-
-    // Terceiro giro
-    IO.Print("TERCEIRO GIRO");
-    MotoresPrincipais.Parar();
-    await Time.Delay(200);
-    await MotoresPrincipais.CurvaEmGraus("esquerda", 90, forcaPadrao, velocidadePadrao);
-
-    // Terceiro avanço
-    IO.Print("TERCEIRO AVANÇO");
-    await Time.Delay(200);
-    await AvancarNoObstaculo(130, "direita");
-    if (sensorDeCorL.CorDetectada() != BRANCO) return;
-
-    // Quarta giro
-    IO.Print("QUARTO GIRO");
-    MotoresPrincipais.Parar();
-    await Time.Delay(200);
-    await MotoresPrincipais.CurvaEmGraus("esquerda", 90, forcaPadrao, velocidadePadrao);
-
-    // Quarto avanço
-    IO.Print("QUARTO AVANÇO");
-    await Time.Delay(200);
-    await AvancarNoObstaculo(130, "direita");
-    if (sensorDeCorL.CorDetectada() != BRANCO) return;
-}
-
-/*
-Função que realiza os avanços no desvio de obstáculo
-*/
-async Task AvancarNoObstaculo(int limiteDoContador, string lado)
-{
-    int contador = 0;
-    while (contador < limiteDoContador)
+    // Início do desvio circular
+    IO.Print("CONTORNANDO...");
+    while (sensorDeCorL.CorDetectada() != PRETO) // Contorna enquanto não houver linha
     {
         await Time.Delay(1);
-        MotoresPrincipais.Mover(forcaPadrao, velocidadePadrao);
-        if (sensorDeCorL.CorDetectada() == PRETO)
-        {
-            await VoltarParaALinha(lado);
-            break;
-        }
-        contador++;
-        IO.Print(contador.ToString());
+        MotoresPrincipais.MoverMotoresPorLado(forcaPadrao, velocidadeDaEsquerda, velocidadeDaDireita);
     }
+
+    await VoltarParaALinha("direita");
 }
 
 /*
